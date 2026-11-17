@@ -38,6 +38,14 @@ assert(catalog[101].sources["Dungeon / questID:900"])
 assert(not FG.Provider.Collect({}))
 assert(not FG.Provider.Collect({IsForever=false,GetRawFieldContainer=att.GetRawFieldContainer}))
 assert(not FG.Provider.Collect({IsForever=true,GetRawFieldContainer=function() return {} end}))
+-- ATT's root node is dropped from paths, but never leaves a path empty.
+local root = {text="|cffb4b4ffALL THE THINGS|r"}
+local zone = {text="Zones", parent=root}
+local rooted = FG.Provider.Collect({IsForever=true,GetRawFieldContainer=function()
+    return {[50]={{parent=zone}}, [51]={{parent=root}}}
+end})
+assert(rooted[50].sources["Zones"])
+assert(rooted[51].sources["ALL THE THINGS"])
 local loop = {}; loop.parent=loop
 local cyclic = FG.Provider.Collect({IsForever=true,GetRawFieldContainer=function() return {[42]={{parent=loop}}} end})
 assert(cyclic[42])

@@ -153,7 +153,7 @@ function FG.Search(options, callback, onProgress)
             #results, math.min(index - 1, total), total, pendingCount + failed, GetTime() - started,
             final and "" or " Загрузка…")
         if warning and warning ~= "" then message = message .. " " .. warning end
-        if scorer then message = message .. " Pawn: " .. options.pawnScale .. ". С оговорками (*): " .. uncertain end
+        if scorer then message = message .. " Pawn: " .. (options.pawnLabel or options.pawnScale) .. ". С оговорками (*): " .. uncertain end
         if final then FG.CancelSearch(); callback(snapshot, message, 1)
         elseif onProgress then onProgress(snapshot, message, progress) end
         dirty, lastPublish = false, GetTime()

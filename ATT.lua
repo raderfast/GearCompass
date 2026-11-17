@@ -26,6 +26,8 @@ local function sourceFor(group)
         end
         current = rawget(current, "parent") or rawget(current, "sourceParent")
     end
+    -- ATT's root window node adds nothing to a path; keep only real categories.
+    if #parts > 1 and parts[1]:upper() == "ALL THE THINGS" then table.remove(parts, 1) end
     if #parts == 0 then parts[1] = "ALL THE THINGS: источник не указан" end
     return table.concat(parts, " / "), available
 end

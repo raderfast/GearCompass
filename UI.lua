@@ -165,11 +165,12 @@ end
 local function setDelta(row, delta)
     if delta == nil then
         row.delta:SetText("—"); row.delta:SetTextColor(0.6, 0.57, 0.5)
+    elseif math.abs(delta) < 0.05 then
+        row.delta:SetText("0.0"); row.delta:SetTextColor(0.75, 0.71, 0.63)
     else
         row.delta:SetText(string.format("%+.1f", delta))
         if delta > 0 then row.delta:SetTextColor(0.5, 0.82, 0.5)
-        elseif delta < 0 then row.delta:SetTextColor(0.88, 0.5, 0.42)
-        else row.delta:SetTextColor(0.75, 0.71, 0.63) end
+        else row.delta:SetTextColor(0.88, 0.5, 0.42) end
     end
 end
 
@@ -180,7 +181,7 @@ function FG.Open()
     FG.window = f
     f:SetSize(1100, 680); f:SetPoint("CENTER"); f:SetMovable(true); f:EnableMouse(true)
     f:RegisterForDrag("LeftButton"); f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
-    f:SetClampedToScreen(true); f.TitleText:SetText("GearCompass — подбор экипировки · ALL THE THINGS")
+    f:SetClampedToScreen(true); f.TitleText:SetText("GearCompass — подбор экипировки по данным ALL THE THINGS")
     f:SetScript("OnHide", function() if openPopup then openPopup:Hide() end end)
     tinsert(UISpecialFrames, "GearCompassWindow")
 
@@ -365,7 +366,7 @@ function FG.Open()
     local rows, results, page, columns = {}, {}, 1, {}
     local pageText = label(f, "", RX + RW - 118, -600, "GameFontHighlightSmall")
     pageText:SetWidth(60); pageText:SetJustifyH("CENTER")
-    local footer = label(f, "Shift+клик — ссылка в чат · «К надетому» — разница с надетым предметом этого слота", RX, -600, "GameFontDisableSmall")
+    local footer = label(f, "Shift+клик — ссылка в чат. «К надетому» — разница с надетым предметом этого слота.", RX, -600, "GameFontDisableSmall")
     footer:SetWidth(RW - 200)
 
     local function showTooltip(self)
@@ -474,7 +475,9 @@ function FG.Open()
         columns = scoring == "pawn" and {} or statColumns(priorities, parsed)
         setLocked(true); progress:SetValue(0)
         status:SetText("Поиск… найденные предметы появятся сразу.")
-        FG.Search({scoring = scoring, pawnScale = pawnScale, weights = parsed, priority = priorities,
+        local pawnLabel
+        for _, choice in ipairs(choices) do if choice.name == pawnScale then pawnLabel = choice.label end end
+        FG.Search({scoring = scoring, pawnScale = pawnScale, pawnLabel = pawnLabel, weights = parsed, priority = priorities,
             slot = slots[si][1], armor = ai - 1, level = maxLevel, source = db.source},
         function(found, message)
             setLocked(false); status:SetText(message); progress:SetValue(found and 1 or 0)
