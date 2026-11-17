@@ -18,13 +18,21 @@ end
 
 function FG.Search(options, callback, onProgress)
     FG.CancelSearch()
+    local scorer
+    if options.scoring == "pawn" then
+        local err
+        scorer, err = FG.Pawn.CreateScorer(options.pawnScale)
+        if not scorer then callback(nil, err); return end
+    end
+    local priority = scorer and {} or options.priority
     local catalog, skipped, warning = FG.Provider.Load()
     if not catalog then callback(nil, skipped); return end
     local queue, results = {}, {}
     for _, entry in pairs(catalog) do queue[#queue + 1] = entry end
     local total, index, started = #queue, 1, GetTime()
     local pending, requested, queued, retryQueue = {}, {}, {}, {}
-    local pendingCount, failed, retryIndex = 0, 0, 1
+    local pendingCount, failed, retryIndex, uncertain = 0, 0, 1, 0
+    local fatal
     local lastPoll, lastPublish, dirty = started, started, false
     local state = {}; active = state
     local sourceFilter = options.source:lower()
@@ -53,14 +61,25 @@ function FG.Search(options, callback, onProgress)
                 return false
             end
             if not loc or loc == "" or not matches(loc, class, subclass, options) or (level or 0) > options.level then return true end
-            local stats = api.GetItemStats(link)
-            if not stats then return false end
-            data = {name = name, link = link, level = level or 0, loc = loc, class = class, subclass = subclass, stats = stats}
+            data = {name = name, link = link, level = level or 0, loc = loc, class = class, subclass = subclass}
             itemCache[entry.id] = data
         end
         if data.level > options.level or not matches(data.loc, data.class, data.subclass, options) then return true end
+        local score, approximate
+        if scorer then
+            local status
+            score, status, approximate = scorer.Score(data.link)
+            if status == "error" then fatal = approximate; return true end
+            if status == "skip" then return true end
+            if status == "pending" then return false end
+        else
+            if not data.stats then data.stats = api.GetItemStats(data.link) end
+            if not data.stats then return false end
+            score = FG.Score(data.stats, options.weights)
+        end
+        if approximate then uncertain = uncertain + 1 end
         results[#results + 1] = {id = entry.id, link = data.link, name = data.name, stats = data.stats,
-            score = FG.Score(data.stats, options.weights), source = source, slot = data.loc}
+            score = score, source = source, slot = data.loc, approximate = approximate}
         dirty = true
         return true
     end
@@ -80,13 +99,18 @@ function FG.Search(options, callback, onProgress)
         end)
     end
     local function publish(final)
+        if scorer then
+            local valid, err = scorer.Validate()
+            if not valid then FG.CancelSearch(); callback(nil, err); return end
+        end
         local snapshot = {}
         for i, item in ipairs(results) do snapshot[i] = item end
-        table.sort(snapshot, function(a, b) return FG.Compare(a, b, options.priority) end)
+        table.sort(snapshot, function(a, b) return FG.Compare(a, b, priority) end)
         local message = string.format("Найдено: %d. Проверено: %d/%d. Не загружено: %d. %.2f сек.%s",
             #results, math.min(index - 1, total), total, pendingCount + failed, GetTime() - started,
             final and "" or " Загрузка…")
         if warning and warning ~= "" then message = message .. " " .. warning end
+        if scorer then message = message .. " Pawn: " .. options.pawnScale .. ". С оговорками (*): " .. uncertain end
         if final then FG.CancelSearch(); callback(snapshot, message)
         elseif onProgress then onProgress(snapshot, message) end
         dirty, lastPublish = false, GetTime()
@@ -116,6 +140,7 @@ function FG.Search(options, callback, onProgress)
                     pending[entry.id] = entry; pendingCount = pendingCount + 1
                 end
             end
+            if fatal then FG.CancelSearch(); callback(nil, fatal); return end
             count = count + 1
             if frameStart and debugprofilestop() - frameStart >= 3 then break end
         end

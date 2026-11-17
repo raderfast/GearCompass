@@ -2,11 +2,12 @@
 ## Title: GearCompass
 ## Notes: Gear ranking with custom stat weights and external ALL THE THINGS data.
 ## Author: GearCompass contributors
-## Version: 0.2.2
-## OptionalDeps: AllTheThings
+## Version: 0.3.0
+## OptionalDeps: AllTheThings, Pawn
 ## SavedVariablesPerCharacter: GearCompassDB
 
 Core.lua
 ATT.lua
+Pawn.lua
 Search.lua
 UI.lua

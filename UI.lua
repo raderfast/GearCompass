@@ -62,10 +62,61 @@ function FG.Open()
     local level = edit(f, 733, -38, 45, 24)
     level:SetMaxLetters(3); level:SetText(tostring(db.level or UnitLevel("player")))
     label(f, "Источник содержит:", 280, -80)
-    local source = edit(f, 432, -73, 330, 26)
+    local source = edit(f, 432, -73, 200, 26)
     source:SetMaxLetters(120); source:SetText(db.source or "")
     local status = label(f, "Задайте веса и нажмите «Найти».", 280, -113)
     status:SetWidth(635); status:SetJustifyH("LEFT"); status:SetFontObject("GameFontHighlightSmall")
+    local scoring, pawnScale = db.scoring or "custom", db.pawnScale
+    local pawnLabel = pawnScale
+    if scoring == "pawn" then
+        for _, scale in ipairs(FG.Pawn.Scales() or {}) do if scale.name == pawnScale then pawnLabel = scale.label; break end end
+    end
+    local scoreButton, menu
+    local function updateScoring()
+        local isPawn = scoring == "pawn"
+        scoreButton:SetText(isPawn and ("Pawn: " .. (pawnLabel or "выберите шкалу")) or "Оценка: свои веса")
+        for _, box in ipairs({weights, priority}) do
+            box:ClearFocus(); box:EnableMouse(not isPawn); box:EnableKeyboard(not isPawn); box:SetAlpha(isPawn and 0.35 or 1)
+        end
+    end
+    scoreButton = button(f, "", 650, -73, 250, function()
+        if menu and menu:IsShown() then menu:Hide(); return end
+        if not menu then
+            menu = CreateFrame("Frame", nil, f, "BackdropTemplate")
+            menu:SetPoint("TOPRIGHT", scoreButton, "BOTTOMRIGHT", 0, -2); menu:SetSize(280, 282)
+            menu:SetFrameStrata("DIALOG"); menu:EnableMouse(true)
+            menu:SetBackdrop({bgFile="Interface/Tooltips/UI-Tooltip-Background"}); menu:SetBackdropColor(0.05, 0.05, 0.05, 1)
+        end
+        menu:Show()
+        local choices = {{label="Свои веса и приоритеты", scoring="custom"}}
+        local scales, err = FG.Pawn.Scales()
+        if not scales then status:SetText(err) end
+        for _, scale in ipairs(scales or {}) do choices[#choices + 1] = {label=scale.label, scoring="pawn", name=scale.name} end
+        local offset, choiceButtons = 1, menu.choiceButtons or {}
+        menu.choiceButtons = choiceButtons
+        local function redraw()
+            for i, b in ipairs(choiceButtons) do
+                b.choice = choices[offset + i - 1]; b:SetShown(b.choice ~= nil)
+                if b.choice then b:SetText(b.choice.label) end
+            end
+        end
+        for i=1,9 do
+            choiceButtons[i] = choiceButtons[i] or button(menu, "", 5, -5 - (i-1)*27, 270, function(b)
+                scoring, pawnScale = b.choice.scoring, b.choice.name
+                pawnLabel = b.choice.label
+                db.scoring, db.pawnScale = scoring, pawnScale
+                updateScoring(); menu:Hide()
+                status:SetText(scoring == "pawn" and "Оценка Pawn без текущих чар. Веса и приоритеты слева не используются." or "Оценка по своим весам и приоритетам.")
+            end)
+        end
+        menu.back = menu.back or button(menu, "Назад", 5, -250, 90)
+        menu.next = menu.next or button(menu, "Далее", 100, -250, 90)
+        menu.close = menu.close or button(menu, "Закрыть", 195, -250, 80, function() menu:Hide() end)
+        menu.back:SetScript("OnClick", function() offset=math.max(1,offset-9); redraw() end)
+        menu.next:SetScript("OnClick", function() if offset+9<=#choices then offset=offset+9 end; redraw() end)
+        redraw()
+    end)
+    updateScoring()
     local rows, results, page = {}, {}, 1
     local pageText = label(f, "", 530, -608)
     local function draw()
@@ -73,7 +124,7 @@ function FG.Open()
             local item = results[(page - 1) * 10 + n]
             row.item = item; row:SetShown(item ~= nil)
             if item then
-                row.title:SetText(string.format("%s   |cffffffff%.2f|r", item.link or item.name, item.score))
+                row.title:SetText(string.format("%s   |cffffffff%.2f%s|r", item.link or item.name, item.score, item.approximate and " *" or ""))
                 row.source:SetText(item.source)
             end
         end
@@ -89,6 +140,7 @@ function FG.Open()
             if not self.item then return end
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetHyperlink(self.item.link)
             GameTooltip:AddLine("Источник: " .. self.item.source, 1, 1, 1, true)
+            if self.item.approximate then GameTooltip:AddLine("Pawn: есть нераспознанные строки. Оценка может не учитывать часть свойств.", 1, 0.7, 0, true) end
             GameTooltip:AddLine("Класс, фракцию и требования проверьте в подсказке.", 1, 0.7, 0, true)
             GameTooltip:Show()
         end)
@@ -101,20 +153,24 @@ function FG.Open()
     button(f, "Назад", 280, -602, 90, function() page = math.max(1, page - 1); draw() end)
     button(f, "Далее", 810, -602, 90, function() page = math.min(math.max(1, math.ceil(#results / 10)), page + 1); draw() end)
     button(f, "Найти", 795, -38, 105, function(self)
-        local parsed, err = FG.ParseWeights(weights:GetText())
-        if not parsed then status:SetText(err); return end
-        local priorities; priorities, err = FG.ParsePriority(priority:GetText())
-        if not priorities then status:SetText(err); return end
-        local hasWeight = false
-        for _, value in pairs(parsed) do if value ~= 0 then hasWeight = true end end
-        if not hasWeight and #priorities == 0 then status:SetText("Задайте ненулевой вес или порядок приоритетов."); return end
+        local parsed, priorities, err = {}, {}
+        if scoring ~= "pawn" then
+            parsed, err = FG.ParseWeights(weights:GetText())
+            if not parsed then status:SetText(err); return end
+            priorities, err = FG.ParsePriority(priority:GetText())
+            if not priorities then status:SetText(err); return end
+            local hasWeight = false
+            for _, value in pairs(parsed) do if value ~= 0 then hasWeight = true end end
+            if not hasWeight and #priorities == 0 then status:SetText("Задайте ненулевой вес или порядок приоритетов."); return end
+        end
         local maxLevel = tonumber(level:GetText())
         if not maxLevel or maxLevel < 1 or maxLevel > 999 or maxLevel % 1 ~= 0 then status:SetText("Уровень: целое число 1–999."); return end
         db.weights, db.priority = weights:GetText(), priority:GetText()
         db.slot, db.armor, db.level, db.source = si, ai, maxLevel, source:GetText()
-        self:Disable(); status:SetText("Поиск… найденные предметы появятся сразу.")
-        FG.Search({weights = parsed, priority = priorities, slot = slots[si][1], armor = ai - 1, level = maxLevel, source = db.source}, function(found, message)
-            self:Enable(); status:SetText(message)
+        self:Disable(); scoreButton:Disable(); if menu then menu:Hide() end
+        status:SetText("Поиск… найденные предметы появятся сразу.")
+        FG.Search({scoring=scoring, pawnScale=pawnScale, weights = parsed, priority = priorities, slot = slots[si][1], armor = ai - 1, level = maxLevel, source = db.source}, function(found, message)
+            self:Enable(); scoreButton:Enable(); status:SetText(message)
             results, page = found or {}, 1; draw()
         end, function(found, message)
             status:SetText(message)
