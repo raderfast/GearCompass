@@ -3,6 +3,18 @@ local api = C_Item or _G
 local itemCache, instantCache = {}, {}
 local active
 
+-- Inventory slots an item of each equip location would replace. Several slots
+-- (rings, trinkets) compare against the weaker piece, the natural upgrade target.
+-- One-handers compare with the main hand only: the off hand may hold a shield.
+FG.slotIDs = {
+    INVTYPE_HEAD={1}, INVTYPE_NECK={2}, INVTYPE_SHOULDER={3}, INVTYPE_CHEST={5}, INVTYPE_ROBE={5},
+    INVTYPE_WAIST={6}, INVTYPE_LEGS={7}, INVTYPE_FEET={8}, INVTYPE_WRIST={9}, INVTYPE_HAND={10},
+    INVTYPE_FINGER={11, 12}, INVTYPE_TRINKET={13, 14}, INVTYPE_CLOAK={15},
+    INVTYPE_WEAPON={16}, INVTYPE_2HWEAPON={16}, INVTYPE_WEAPONMAINHAND={16},
+    INVTYPE_WEAPONOFFHAND={17}, INVTYPE_SHIELD={17}, INVTYPE_HOLDABLE={17},
+    INVTYPE_RANGED={18}, INVTYPE_RANGEDRIGHT={18}, INVTYPE_THROWN={18}, INVTYPE_RELIC={18},
+}
+
 function FG.CancelSearch()
     if FG.ticker then FG.ticker:Cancel(); FG.ticker = nil end
     if active and active.events then active.events:UnregisterAllEvents() end
@@ -83,6 +95,31 @@ function FG.Search(options, callback, onProgress)
         dirty = true
         return true
     end
+    -- Score of the equipped piece for an equip location; nil while data loads.
+    -- Resolved values are cached for the whole search, missing ones are retried.
+    local equippedCache = {}
+    local function equipped(loc)
+        if equippedCache[loc] then return equippedCache[loc] end
+        local ids = FG.slotIDs[loc]
+        if not ids or not GetInventoryItemLink then return nil end
+        local worst
+        for _, slotID in ipairs(ids) do
+            local link = GetInventoryItemLink("player", slotID)
+            local info = {link = link, slotID = slotID, score = 0}
+            if link and scorer then
+                local score, status, approximate = scorer.Score(link)
+                if status ~= "ok" then return nil end
+                info.score, info.approximate = score, approximate
+            elseif link then
+                info.stats = api.GetItemStats(link)
+                if not info.stats then return nil end
+                info.score = FG.Score(info.stats, options.weights)
+            end
+            if not worst or info.score < worst.score then worst = info end
+        end
+        equippedCache[loc] = worst
+        return worst
+    end
     local function enqueue(id)
         if pending[id] and not queued[id] then
             queued[id] = true; retryQueue[#retryQueue + 1] = id
@@ -104,15 +141,21 @@ function FG.Search(options, callback, onProgress)
             if not valid then FG.CancelSearch(); callback(nil, err); return end
         end
         local snapshot = {}
-        for i, item in ipairs(results) do snapshot[i] = item end
+        for i, item in ipairs(results) do
+            local current = equipped(item.slot)
+            item.delta = current and item.score - current.score or nil
+            snapshot[i] = item
+        end
+        if options.slot ~= "ALL" then snapshot.equipped = equipped(options.slot) end
+        local progress = total > 0 and math.min(index - 1, total) / total or 1
         table.sort(snapshot, function(a, b) return FG.Compare(a, b, priority) end)
         local message = string.format("Найдено: %d. Проверено: %d/%d. Не загружено: %d. %.2f сек.%s",
             #results, math.min(index - 1, total), total, pendingCount + failed, GetTime() - started,
             final and "" or " Загрузка…")
         if warning and warning ~= "" then message = message .. " " .. warning end
         if scorer then message = message .. " Pawn: " .. options.pawnScale .. ". С оговорками (*): " .. uncertain end
-        if final then FG.CancelSearch(); callback(snapshot, message)
-        elseif onProgress then onProgress(snapshot, message) end
+        if final then FG.CancelSearch(); callback(snapshot, message, 1)
+        elseif onProgress then onProgress(snapshot, message, progress) end
         dirty, lastPublish = false, GetTime()
     end
     FG.ticker = C_Timer.NewTicker(0.01, function()

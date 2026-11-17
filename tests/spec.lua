@@ -94,3 +94,30 @@ result = nil
 FG.Search({weights=weights,priority={},slot="ALL",armor=1,level=60,source=""}, function(r,m) result,message=r,m end)
 for i=1,100 do if not tick then break end; time=time+0.05; tick() end
 assert(result and #result == 1 and result[1].id == 101)
+
+-- Delta to the equipped piece of the candidate's slot.
+resetSearch()
+GetInventoryItemLink = function(_, slot) if slot == 1 then return "item:900" end end
+GetItemStats = function(link)
+    if link == "item:900" then return {ITEM_MOD_INTELLECT_SHORT=4} end
+    return {ITEM_MOD_INTELLECT_SHORT=10}
+end
+result = nil
+FG.Search({weights=weights,priority={},slot="INVTYPE_HEAD",armor=1,level=60,source=""}, function(r,m) result,message=r,m end)
+for i=1,100 do if not tick then break end; time=time+0.05; tick() end
+assert(result and result[1].delta == 6, "Delta must compare with the equipped head")
+assert(result.equipped and result.equipped.score == 4 and result.equipped.slotID == 1)
+-- Rings compare with the weaker ring; an empty ring slot scores 0.
+assert(FG.slotIDs.INVTYPE_FINGER[1] == 11 and FG.slotIDs.INVTYPE_FINGER[2] == 12)
+resetSearch()
+GetItemInfoInstant = function(id) return id, nil, nil, "INVTYPE_FINGER", nil, id == 102 and 15 or 4, 0 end
+GetItemInfo = function(id)
+    assert(id == 101)
+    return "Ring", "item:101", 3, 50, 10, "Armor", "Misc", 1, "INVTYPE_FINGER", nil, 0, 4, 0
+end
+GetInventoryItemLink = function(_, slot) if slot == 11 then return "item:900" end end
+result = nil
+FG.Search({weights=weights,priority={},slot="INVTYPE_FINGER",armor=0,level=60,source=""}, function(r,m) result,message=r,m end)
+for i=1,100 do if not tick then break end; time=time+0.05; tick() end
+assert(result and result[1].delta == 10 and result.equipped.slotID == 12 and not result.equipped.link)
+GetInventoryItemLink = nil

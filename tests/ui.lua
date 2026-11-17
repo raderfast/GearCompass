@@ -21,6 +21,7 @@ function methods:Enable() self.disabled=false end
 function methods:Disable() self.disabled=true end
 function methods:EnableKeyboard(value) self.keyboard=value end
 function methods:CreateFontString() return widget() end
+function methods:CreateTexture() return widget() end
 CreateFrame=function() local w=widget(); w.TitleText=widget(); return w end
 UIParent={}; UISpecialFrames={}; SlashCmdList={}; tinsert=table.insert
 UnitLevel=function() return 60 end
@@ -40,17 +41,29 @@ function runUITest(gc)
     local searched
     gc.Search=function(options,callback) searched=options; callback({},"Done") end
     gc.Open()
-    click("Оценка: свои веса")
+    local count=#widgets
+    click("Шкала Pawn")
     click("My Pawn scale")
     assert(GearCompassDB.scoring=="pawn" and GearCompassDB.pawnScale=="A")
     click("Найти")
     assert(searched.scoring=="pawn" and searched.pawnScale=="A" and #searched.priority==0)
-    local count=#widgets
-    click("Pawn: My Pawn scale"); click("Закрыть"); click("Pawn: My Pawn scale"); click("Закрыть")
-    assert(#widgets==count, "Reopening selector must reuse its widgets")
-    click("Pawn: My Pawn scale"); click("Свои веса и приоритеты")
+    click("Свои веса"); click("Шкала Pawn"); click("Свои веса")
+    assert(#widgets==count, "Switching scoring modes must reuse widgets")
     assert(GearCompassDB.scoring=="custom")
     -- All-zero custom profile is still rejected after leaving Pawn mode.
     searched=nil; click("Найти"); assert(not searched)
-    print("PASS: UI Pawn selection, persistent scale, mode isolation and reusable selector")
+    -- Armor dropdown: the choice list is built once and reused.
+    click("Любая броня"); click("Кольчуга")
+    count=#widgets
+    click("Кольчуга"); click("Латы")
+    assert(#widgets==count, "Reopening a dropdown must reuse its widgets")
+    -- Every stat has its own weight box; the first one is STR.
+    local boxes={}
+    for _,w in ipairs(widgets) do if w.scripts.OnTabPressed then boxes[#boxes+1]=w end end
+    assert(#boxes==#gc.stats, "All stats must be shown at once")
+    boxes[1]:SetText("1,5")
+    click("Найти")
+    assert(searched and searched.scoring=="custom" and searched.weights.STR==1.5 and searched.armor==4)
+    assert(GearCompassDB.weights:find("STR=1,5",1,true) and GearCompassDB.weights:find("MP5=0",1,true))
+    print("PASS: UI scoring modes, Pawn scale, dropdowns, full weight list and persistence")
 end
