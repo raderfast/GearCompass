@@ -2,7 +2,7 @@
 ## Title: GearCompass
 ## Notes: Gear ranking with custom stat weights and external ALL THE THINGS data.
 ## Author: GearCompass contributors
-## Version: 0.3.0
+## Version: 0.4.0
 ## OptionalDeps: AllTheThings, Pawn
 ## SavedVariablesPerCharacter: GearCompassDB
 
