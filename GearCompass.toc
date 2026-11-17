@@ -1,0 +1,12 @@
+## Interface: 16001
+## Title: GearCompass
+## Notes: Gear ranking with custom stat weights and external ALL THE THINGS data.
+## Author: GearCompass contributors
+## Version: 0.2.2
+## OptionalDeps: AllTheThings
+## SavedVariablesPerCharacter: GearCompassDB
+
+Core.lua
+ATT.lua
+Search.lua
+UI.lua
