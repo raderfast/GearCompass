@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Lua runtime for tests
+        run: python -m pip install lupa==2.8
+      - name: Run tests
+        run: python tests/run.py
+      - name: Build addon archive
+        run: python scripts/build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GearCompass
+          path: dist/*.zip
+          if-no-files-found: error
+
+  # A pushed tag vX.Y.Z publishes a release with the archive. The tag must
+  # match "## Version:" in GearCompass.toc. An annotated tag's message becomes
+  # the release notes; a lightweight tag gets GitHub's generated notes.
+  release:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build archive for the tag
+        run: echo "ZIP=$(python scripts/build.py --tag "$TAG")" >> "$GITHUB_ENV"
+      - name: Publish release
+        run: |
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --clobber
+            exit 0
+          fi
+          notes="$(git for-each-ref "refs/tags/$TAG" --format='%(contents)')"
+          if [ "$(git cat-file -t "$TAG")" = "tag" ] && [ -n "$notes" ]; then
+            printf '%s\n' "$notes" > notes.md
+            gh release create "$TAG" "$ZIP" --verify-tag --title "GearCompass ${TAG#v}" --notes-file notes.md
+          else
+            gh release create "$TAG" "$ZIP" --verify-tag --title "GearCompass ${TAG#v}" --generate-notes
+          fi
